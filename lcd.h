@@ -20,10 +20,11 @@
 
 // LCD memory map for numeric digits (Byte Access)
 extern const char digit[10][4];
+extern const char alphabetBig[26][4];
 
-void initLCD();
+void initLCD (void);
 
-void showChar(char, int);
+void showChar(LCD_F_Type*, char, int);
 
 
 #endif /* LCD_H_ */
