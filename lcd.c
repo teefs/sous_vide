@@ -82,7 +82,7 @@ void initLCD (void){
     LCD_F->CTL |= LCD_F_CTL_ON;
 }
 
-void showChar(LCD_F_Type* lcd, char c, int position)
+void showChar(char c, int position)
 {
     int i;
     if (c == ' ')

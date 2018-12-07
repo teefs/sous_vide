@@ -1,11 +1,18 @@
 #include <stdint.h>
+#include <stdbool.h>
 #include "msp.h"
 #include "lcd.h"
 
+const int outLower = 128, outUpper = 1152;
+float lastTemp, temp, setPointTemp;
+float kp, ki, kd, integralTerm;
+int output;
+int computeInterval;
+bool start;
 
-/**
- * main.c
- */
+void compute (void);
+float sampleToTemp (void);
+
 void main(void)
 {
 	WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;		// stop watchdog timer
@@ -47,7 +54,7 @@ void main(void)
     TIMER_A0->CCTL[1] |= TIMER_A_CCTLN_OUTMOD_7 | TIMER_A_CCTLN_CM__NONE;
     TIMER_A0->CCTL[1] &= ~TIMER_A_CCTLN_CAP;
     TIMER_A0->CCR[0] = (uint16_t) 1280;
-    TIMER_A0->CCR[1] = (uint16_t) 0xFFFF;
+    TIMER_A0->CCR[1] = (uint16_t) 128;
     TIMER_A0->CTL |= TIMER_A_CTL_SSEL__ACLK | TIMER_A_CTL_ID__8 | TIMER_A_CTL_CLR;
 
     /* PORT 4
@@ -59,7 +66,7 @@ void main(void)
     P4->REN |= BIT0 | BIT1 | BIT2;
     P4->IES &= ~(BIT0 | BIT1 | BIT2);
     P4->IE = BIT0 | BIT1 | BIT2;
-    P4->IFG &= 0;
+    P4->IFG = 0;
     NVIC->ISER[1] = 1 << ((PORT4_IRQn) & 31);
 
     /* SYSTICK
@@ -70,15 +77,97 @@ void main(void)
     SysTick->CTRL |= SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk;
     //SysTick_CTRL_ENABLE_Msk
 
+    // Initialize PID variables.
+    lastTemp = 0;
+    temp = 0;
+    setPointTemp = 55;
 
+    computeInterval = 30; // 30s
+    kp = 1;
+    ki = 1/computeInterval;
+    kd = 1/computeInterval;
+    integralTerm = 0;
+    output = 0;
+
+    start = false;
+
+    showChar('5' char5);
+    showChar('5' char6);
 //    SCB->SCR |= SCB_SCR_SLEEPONEXIT_Msk;    // Enable sleep on exit from ISR
 //    __DSB();
 
     __enable_irq();
-//    __wfi();
+
+    while (1)
+    {
+        float reading = sampleToTemp();
+        char ones, tens, decimal;
+        ones = ((int) reading) % 10;
+        decimal = ((int) (reading*10)) % 10;
+        tens = ((int) (reading/10)) % 10;
+
+        showChar(tens, char1);
+        showChar(ones, char2);
+        showChar(decimal, char3);
+
+        volatile int i;
+        for (i = 1500000; i > 0; i--);
+    }
 }
+
+/* Converts the ADC's sample of the TMP36G temperature sensor
+ * TMP36G temperature curve: t = 100V - 50 *C.
+ * ADC14's config. gives this eq: Nadc = 16384 * V / 1.45
+ * Subbing and solving: t = Nadc * 145 / 16384 - 50 *C.
+ */
+float sampleToTemp(void)
+{
+    return ADC14->MEM[0] / 16384.0 * 145.0 - 50;
+}
+
+void compute(void)
+{
+    temp = sampleToTemp();
+    float error = setPointTemp - temp;
+    integralTerm += ki * error;
+    if (integralTerm > outUpper)
+        integralTerm = outUpper;
+    else if (integralTerm < outLower)
+        integralTerm = outLower;
+
+    float deltaTemp = temp - lastTemp;
+
+    output = (int) (kp * error + integralTerm - kd * deltaTemp + 0.5); // Adding 0.5 and casting to int to round to nearest whole number for PWM output.
+    if (output > outUpper)
+        output = outUpper;
+    else if (output < outLower)
+        output = outLower;
+
+    lastTemp = temp;
+}
+
 
 void SysTick_Handler(void)
 {
     P1->OUT ^= BIT0;                        // Toggle P1.0 LED
+}
+
+void PORT4_IRQHandler(void)
+{
+    uint8_t flag = P4->IV;
+    if (flag & BIT0){
+        start ^= true;
+
+        // Disable changing set point temperature when machine running.
+        if (start){
+            P4->IE = BIT0;
+            P4->IFG &= ~(BIT1 | BIT2);
+        }else{
+            P4->IE = BIT0 | BIT1 | BIT2;
+        }
+    }else if (flag & BIT1){
+        setPointTemperature += 1;
+    }else if (flag & BIT2){
+        setPointTemperature -= 1;
+    }
 }

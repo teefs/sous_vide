@@ -24,7 +24,7 @@ extern const char alphabetBig[26][4];
 
 void initLCD (void);
 
-void showChar(LCD_F_Type*, char, int);
+void showChar(char, int);
 
 
 #endif /* LCD_H_ */
