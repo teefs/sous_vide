@@ -4,13 +4,8 @@
 #include "lcd.h"
 
 const int outLower = 128, outUpper = 1152;
-float lastTemp, temp, setPointTemp;
-float kp, ki, kd, integralTerm;
 int output;
-int computeInterval;
-bool start;
 
-void compute (void);
 float sampleToTemp (void);
 
 void main(void)
@@ -124,28 +119,6 @@ float sampleToTemp(void)
 {
     return ADC14->MEM[0] / 16384.0 * 145.0 - 50;
 }
-
-void compute(void)
-{
-    temp = sampleToTemp();
-    float error = setPointTemp - temp;
-    integralTerm += ki * error;
-    if (integralTerm > outUpper)
-        integralTerm = outUpper;
-    else if (integralTerm < outLower)
-        integralTerm = outLower;
-
-    float deltaTemp = temp - lastTemp;
-
-    output = (int) (kp * error + integralTerm - kd * deltaTemp + 0.5); // Adding 0.5 and casting to int to round to nearest whole number for PWM output.
-    if (output > outUpper)
-        output = outUpper;
-    else if (output < outLower)
-        output = outLower;
-
-    lastTemp = temp;
-}
-
 
 void SysTick_Handler(void)
 {
