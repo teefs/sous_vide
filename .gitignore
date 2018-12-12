@@ -18,3 +18,5 @@ Debug/subdir_vars.mk
 Debug/system_msp432p4111.d
 Debug/system_msp432p4111.obj
 Debug/lcd.d
+*.d
+*.obj

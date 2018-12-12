@@ -4,6 +4,7 @@
  *  Created on: Dec 5, 2018
  *      Author: Nicholas
  */
+#include "pid.h"
 
 PIDVariables vars = {.outLower = 0,
                      .outUpper = 0,
@@ -26,7 +27,7 @@ float compute(float input)
 
     float deltaInput = input - vars.lastInput;
 
-    float output = kp * error + integralTerm - kd * deltaTemp;
+    float output = vars.kp * error + vars.integralTerm - vars.kd * deltaInput;
     if (output > vars.outUpper)
         output = vars.outUpper;
     else if (output < vars.outLower)
@@ -55,7 +56,7 @@ int setComputeInterval (int seconds)
 
 int getComputeInterval (void)
 {
-    return vars.computerInterval;
+    return vars.computeInterval;
 }
 
 int setGains (float Kp, float Ki, float Kd)

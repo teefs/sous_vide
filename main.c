@@ -1,12 +1,30 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "msp.h"
-#include "lcd.h"
+
+enum characters = {char1 = 16, char2 = 32, char3 = 40, char4 = 36, char5 = 28, char6 = 44};
 
 const int outLower = 128, outUpper = 1152;
+float setPointTemperature;
 int output;
+bool start;
+
+const char digit[10][4] =
+{
+    {0xC, 0xF, 0x8, 0x2},  /* "0" LCD segments a+b+c+d+e+f+k+q */
+    {0x0, 0x6, 0x0, 0x2},  /* "1" */
+    {0xB, 0xD, 0x0, 0x0},  /* "2" */
+    {0x3, 0xF, 0x0, 0x0},  /* "3" */
+    {0x7, 0x6, 0x0, 0x0},  /* "4" */
+    {0x7, 0xB, 0x0, 0x0},  /* "5" */
+    {0xF, 0xB, 0x0, 0x0},  /* "6" */
+    {0x4, 0xE, 0x0, 0x0},  /* "7" */
+    {0xF, 0xF, 0x0, 0x0},  /* "8" */
+    {0x7, 0xF, 0x0, 0x0}   /* "9" */
+};
 
 float sampleToTemp (void);
+void showDig(int c, enum characters position)
 
 void main(void)
 {
@@ -64,6 +82,31 @@ void main(void)
     P4->IFG = 0;
     NVIC->ISER[1] = 1 << ((PORT4_IRQn) & 31);
 
+    /* LCD_F
+     * 4-mux mode
+     * LCD refresh frequency = 85.33Hz
+     * Blinking frequency = 1Hz
+     */
+    P3->SEL1 |= 0xF2;
+    P6->SEL1 |= 0x0C;
+    P7->SEL1 |= 0xF0;
+    P8->SEL1 |= 0xFC;
+    P9->SEL1 |= 0xFF;
+    P10->SEL1 |= 0x3F;
+    LCD_F->PCTL0 |= 0xFC0F004F;
+    LCD_F->PCTL1 |= 0x0000FFFF;
+
+    LCD_F->CTL |= LCD_F_CTL_SSEL_3 | LCD_F_CTL_DIV_15 | LCD_F_CTL_PRE_2 | LCD_F_CTL_MX_3 | LCD_F_CTL_SON;
+    LCD_F->BMCTL |= LCD_F_BMCTL_CLRBM | LCD_F_BMCTL_CLRM | LCD_F_BMCTL_BLKDIV_7 | LCD_F_BMCTL_BLKPRE_3;
+    LCD_F->BMCTL |= LCD_F_BMCTL_BLKMOD_3;
+    LCD_F->CSSEL0 |= 0x0C000048;
+    LCD_F->M[26] = 0x01;
+    LCD_F->M[27] = 0x02;
+    LCD_F->M[6] = 0x04;
+    LCD_F->M[3] = 0x08;
+    LCD_F->CTL |= LCD_F_CTL_ON;
+
+
     /* SYSTICK
      * Interrupts every 5s to recompute the PID heater output.
      */
@@ -73,21 +116,10 @@ void main(void)
     //SysTick_CTRL_ENABLE_Msk
 
     // Initialize PID variables.
-    lastTemp = 0;
-    temp = 0;
-    setPointTemp = 55;
 
-    computeInterval = 30; // 30s
-    kp = 1;
-    ki = 1/computeInterval;
-    kd = 1/computeInterval;
-    integralTerm = 0;
-    output = 0;
 
-    start = false;
-
-    showChar('5' char5);
-    showChar('5' char6);
+    showChar('5', char5);
+    showChar('5', char6);
 //    SCB->SCR |= SCB_SCR_SLEEPONEXIT_Msk;    // Enable sleep on exit from ISR
 //    __DSB();
 
@@ -96,14 +128,14 @@ void main(void)
     while (1)
     {
         float reading = sampleToTemp();
-        char ones, tens, decimal;
-        ones = ((int) reading) % 10;
-        decimal = ((int) (reading*10)) % 10;
-        tens = ((int) (reading/10)) % 10;
+        /*char ones, tens, decimal;
+        ones = (char)(((int) reading) % 10 + 48);
+        decimal = (char)(((int) (reading*10)) % 10 + 48);
+        tens = (char)(((int) (reading/10)) % 10 + 48);
 
         showChar(tens, char1);
         showChar(ones, char2);
-        showChar(decimal, char3);
+        showChar(decimal, char3);*/
 
         volatile int i;
         for (i = 1500000; i > 0; i--);
@@ -118,6 +150,22 @@ void main(void)
 float sampleToTemp(void)
 {
     return ADC14->MEM[0] / 16384.0 * 145.0 - 50;
+}
+
+void showDig(int c, enum characters position)
+{
+    int i;
+    if (c < 0 || c > 9)
+    {
+        for (i=0; i<4; i++)
+        {
+            LCD_F->M[position+i] = 0x00;
+        }
+    } else {
+        for (i=0; i<4; i++)
+        {
+            LCD_F->M[position+i] = digit[c][i];
+        }
 }
 
 void SysTick_Handler(void)
