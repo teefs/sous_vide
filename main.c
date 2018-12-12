@@ -2,7 +2,7 @@
 #include <stdbool.h>
 #include "msp.h"
 
-enum characters = {char1 = 16, char2 = 32, char3 = 40, char4 = 36, char5 = 28, char6 = 44};
+enum characters {char1 = 16, char2 = 32, char3 = 40, char4 = 36, char5 = 28, char6 = 44};
 
 const int outLower = 128, outUpper = 1152;
 float setPointTemperature;
@@ -24,7 +24,7 @@ const char digit[10][4] =
 };
 
 float sampleToTemp (void);
-void showDig(int c, enum characters position)
+void showDig(int c, enum characters position);
 
 void main(void)
 {
@@ -84,7 +84,7 @@ void main(void)
 
     /* LCD_F
      * 4-mux mode
-     * LCD refresh frequency = 85.33Hz
+     * LCD refresh frequency = 64Hz
      * Blinking frequency = 1Hz
      */
     P3->SEL1 |= 0xF2;
@@ -118,8 +118,8 @@ void main(void)
     // Initialize PID variables.
 
 
-    showChar('5', char5);
-    showChar('5', char6);
+    showDig(5, char5);
+    showDig(5, char6);
 //    SCB->SCR |= SCB_SCR_SLEEPONEXIT_Msk;    // Enable sleep on exit from ISR
 //    __DSB();
 
@@ -127,18 +127,7 @@ void main(void)
 
     while (1)
     {
-        float reading = sampleToTemp();
-        /*char ones, tens, decimal;
-        ones = (char)(((int) reading) % 10 + 48);
-        decimal = (char)(((int) (reading*10)) % 10 + 48);
-        tens = (char)(((int) (reading/10)) % 10 + 48);
 
-        showChar(tens, char1);
-        showChar(ones, char2);
-        showChar(decimal, char3);*/
-
-        volatile int i;
-        for (i = 1500000; i > 0; i--);
     }
 }
 
@@ -149,7 +138,13 @@ void main(void)
  */
 float sampleToTemp(void)
 {
-    return ADC14->MEM[0] / 16384.0 * 145.0 - 50;
+    int sample = ADC14->MEM[0];
+    float divisor = 16384.0;
+    float multiplier = 145.0;
+    float temperature = (float) sample / divisor;
+    temperature *= multiplier;
+    temperature -= 50.0;
+    return temperature;
 }
 
 void showDig(int c, enum characters position)
@@ -166,6 +161,7 @@ void showDig(int c, enum characters position)
         {
             LCD_F->M[position+i] = digit[c][i];
         }
+    }
 }
 
 void SysTick_Handler(void)
