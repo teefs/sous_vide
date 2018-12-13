@@ -130,8 +130,8 @@ void main(void)
     setComputeInterval (pidComputeInterval);
     setGains (Kp, Ki, Kd);
 
-    showDig(5, char5);
-    showDig(5, char6);
+    showDig((int)(setPointTemperature / 10) % 10, char5);
+    showDig((int)setPointTemperature % 10, char6);
 //    SCB->SCR |= SCB_SCR_SLEEPONEXIT_Msk;    // Enable sleep on exit from ISR
 //    __DSB();
 
@@ -203,7 +203,7 @@ void PORT4_IRQHandler(void)
         }
     }else if (flag & BIT1){
         setPointTemperature += 1;
-        setPointTemperature %= 100;
+        setPointTemperature = (int)setPointTemperature % 100;
         showDig((int)(setPointTemperature / 10) % 10, char5);
         showDig((int)setPointTemperature % 10, char6);
     }else if (flag & BIT2){
