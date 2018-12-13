@@ -21,7 +21,7 @@ int setOutputLimits (float min, float max);
 int setComputeInterval (int seconds);
 int getComputeInterval (void);
 int setGains (float Kp, float Ki, float Kd);
-void setInitialInput (float input);
+void initializePID (float initialInput);
 void setSetpoint (float setpoint);
 float getSetpoint (void);
 

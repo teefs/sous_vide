@@ -1,10 +1,16 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "msp.h"
+#include "pid.h"
 
 enum characters {char1 = 16, char2 = 32, char3 = 40, char4 = 36, char5 = 28, char6 = 44};
 
-const int outLower = 128, outUpper = 1152;
+#define INITIALSETPOINT 55
+
+const int outLower = 128, outUpper = 1152, pwmPeriod = 1280;
+const int Kp = 1 , Ki = 1, Kd = 1, pidComputeInterval = 60;
+
+
 float setPointTemperature;
 int output;
 bool start;
@@ -66,8 +72,8 @@ void main(void)
 
     TIMER_A0->CCTL[1] |= TIMER_A_CCTLN_OUTMOD_7 | TIMER_A_CCTLN_CM__NONE;
     TIMER_A0->CCTL[1] &= ~TIMER_A_CCTLN_CAP;
-    TIMER_A0->CCR[0] = (uint16_t) 1280;
-    TIMER_A0->CCR[1] = (uint16_t) 128;
+    TIMER_A0->CCR[0] = (uint16_t) pwmPeriod;
+    TIMER_A0->CCR[1] = (uint16_t) outLower;
     TIMER_A0->CTL |= TIMER_A_CTL_SSEL__ACLK | TIMER_A_CTL_ID__8 | TIMER_A_CTL_CLR;
 
     /* PORT 4
@@ -108,15 +114,21 @@ void main(void)
 
 
     /* SYSTICK
-     * Interrupts every 5s to recompute the PID heater output.
+     * Interrupts every pidComputeInterval seconds to recompute the PID heater output.
      */
-    SysTick->LOAD = 0x00E4E1C0 - 1; // 3MHz clk = 5 second countdown
+    SysTick->LOAD = pidComputeInterval * 3000000 - 1;
     SysTick->VAL = BIT0;
     SysTick->CTRL |= SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk;
     //SysTick_CTRL_ENABLE_Msk
 
     // Initialize PID variables.
+    start = false;
+    setPointTemperature = INITIALSETPOINT;
+    output = outLower;
 
+    setOutputLimits (outLower, outUpper);
+    setComputeInterval (pidComputeInterval);
+    setGains (Kp, Ki, Kd);
 
     showDig(5, char5);
     showDig(5, char6);
@@ -127,7 +139,16 @@ void main(void)
 
     while (1)
     {
+        float temperature = sampleToTemp() + 0.05; // Rnd to nearest tenth.
+        int ones = (int)temperature % 10;
+        int tens = (int)(temperature / 10) % 10;
+        int decimal = (int)(temperature * 10) % 10;
 
+        showDig (tens, char1);
+        showDig (ones, char2);
+        showDig (decimal, char3);
+        volatile int i;
+        for (i = 1000; i > 0; i--);
     }
 }
 
@@ -139,11 +160,7 @@ void main(void)
 float sampleToTemp(void)
 {
     int sample = ADC14->MEM[0];
-    float divisor = 16384.0;
-    float multiplier = 145.0;
-    float temperature = (float) sample / divisor;
-    temperature *= multiplier;
-    temperature -= 50.0;
+    float temperature = (float) sample * 0.00885009765625 - 50;
     return temperature;
 }
 
@@ -179,12 +196,21 @@ void PORT4_IRQHandler(void)
         if (start){
             P4->IE = BIT0;
             P4->IFG &= ~(BIT1 | BIT2);
+            initializePID (sampleToTemp());
+            setSetpoint (setPointTemperature);
         }else{
             P4->IE = BIT0 | BIT1 | BIT2;
         }
     }else if (flag & BIT1){
         setPointTemperature += 1;
+        setPointTemperature %= 100;
+        showDig((int)(setPointTemperature / 10) % 10, char5);
+        showDig((int)setPointTemperature % 10, char6);
     }else if (flag & BIT2){
         setPointTemperature -= 1;
+        if (setPointTemperature < 0)
+            setPointTemperature = 0;
+        showDig((int)(setPointTemperature / 10) % 10, char5);
+        showDig((int)setPointTemperature % 10, char6);
     }
 }

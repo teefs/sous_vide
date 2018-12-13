@@ -20,3 +20,4 @@ Debug/system_msp432p4111.obj
 Debug/lcd.d
 *.d
 *.obj
+/.metadata/

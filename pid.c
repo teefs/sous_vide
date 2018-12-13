@@ -73,9 +73,10 @@ int setGains (float Kp, float Ki, float Kd)
     return -2;
 }
 
-void setInitialInput (float input)
+void initializePID (float initialInput)
 {
-    vars.lastInput = input;
+    vars.lastInput = initialInput;
+    vars.integralTerm = vars.outLower;
 }
 
 void setSetpoint (float setpoint)
