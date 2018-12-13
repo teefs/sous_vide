@@ -209,7 +209,7 @@ void PORT4_IRQHandler(void)
     }else if (flag & BIT2){
         setPointTemperature -= 1;
         if (setPointTemperature < 0)
-            setPointTemperature = 0;
+            setPointTemperature = 99;
         showDig((int)(setPointTemperature / 10) % 10, char5);
         showDig((int)setPointTemperature % 10, char6);
     }
