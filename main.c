@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include "msp.h"
 #include "pid.h"
 
@@ -8,7 +9,7 @@ enum characters {char1 = 16, char2 = 32, char3 = 40, char4 = 36, char5 = 28, cha
 #define INITIALSETPOINT 55
 
 const int outLower = 128, outUpper = 1152, pwmPeriod = 1280;
-const int Kp = 1 , Ki = 1, Kd = 1, pidComputeInterval = 60;
+const int Kp = 600, Ki = 60, Kd = 60, pidComputeInterval = 60;
 
 
 float setPointTemperature;
@@ -35,7 +36,6 @@ void showDig(int c, enum characters position);
 void main(void)
 {
 	WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;		// stop watchdog timer
-
 	// Configure peripheral devices and IO.
 
 	/* Configure clocks.
@@ -44,10 +44,10 @@ void main(void)
 	 * ACLK = 512Hz. (Default ACLK source is LFTXCLK, then divided it by 64.)
 	 *      Clocks TIMER_A0.
 	 * MCLK = 3MHz. (Default MCLK source is DCOCLK set to 3MHz.)
-	 *      Clocks ADC14, ARM processor, and on-processor peripherals.
+	 *      Clocks ADC14, TIMER_32, and ARM processor.
 	 */
     CS->KEY = CS_KEY_VAL;
-    CS->CTL1 = CS_CTL1_DIVA__64;
+    CS->CTL1 |= CS_CTL1_DIVA__64;
 
     /* ADC14
      * Configured to repeatedly sample on pin 5.4.
@@ -77,14 +77,14 @@ void main(void)
     TIMER_A0->CTL |= TIMER_A_CTL_SSEL__ACLK | TIMER_A_CTL_ID__8 | TIMER_A_CTL_CLR;
 
     /* PORT 4
-     * P4.0 - P4.2 used for buttons to select set-point temperature and start sous vide machine.
+     * P4.1 - P4.3 used for buttons to select set-point temperature and start sous vide machine.
      * A button press pulls the pin to Vdd. A 0->1 transition triggers a Port 4 interrupt.
      */
-    P4->DIR &= ~(BIT0 | BIT1 | BIT2);
-    P4->OUT &= ~(BIT0 | BIT1 | BIT2);
-    P4->REN |= BIT0 | BIT1 | BIT2;
-    P4->IES &= ~(BIT0 | BIT1 | BIT2);
-    P4->IE = BIT0 | BIT1 | BIT2;
+    P4->DIR &= ~(BIT1 | BIT2 | BIT3);
+    P4->OUT &= ~(BIT1 | BIT2 | BIT3);
+    P4->REN |= BIT1 | BIT2 | BIT3;
+    P4->IES &= ~(BIT1 | BIT2 | BIT3);
+    P4->IE = BIT1 | BIT2 | BIT3;
     P4->IFG = 0;
     NVIC->ISER[1] = 1 << ((PORT4_IRQn) & 31);
 
@@ -113,13 +113,15 @@ void main(void)
     LCD_F->CTL |= LCD_F_CTL_ON;
 
 
-    /* SYSTICK
+    /* TIMER_32
      * Interrupts every pidComputeInterval seconds to recompute the PID heater output.
      */
-    SysTick->LOAD = pidComputeInterval * 3000000 - 1;
-    SysTick->VAL = BIT0;
-    SysTick->CTRL |= SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk;
-    //SysTick_CTRL_ENABLE_Msk
+    TIMER32_1->LOAD = (uint32_t)pidComputeInterval * 3000000 - 1;
+    TIMER32_1->BGLOAD = (uint32_t)pidComputeInterval * 3000000 - 1;
+    TIMER32_1->CONTROL |= TIMER32_CONTROL_IE | TIMER32_CONTROL_MODE | TIMER32_CONTROL_SIZE;
+    NVIC->ISER[0] = 1 << ((T32_INT1_IRQn) & 31);
+    //SysTick->VAL = BIT0;
+    //SysTick->CTRL |= SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk;
 
     // Initialize PID variables.
     start = false;
@@ -148,7 +150,7 @@ void main(void)
         showDig (ones, char2);
         showDig (decimal, char3);
         volatile int i;
-        for (i = 1000; i > 0; i--);
+        for (i = 3000000; i > 0; i--);
     }
 }
 
@@ -181,32 +183,52 @@ void showDig(int c, enum characters position)
     }
 }
 
-void SysTick_Handler(void)
+void T32_INT1_IRQHandler(void)
 {
-    P1->OUT ^= BIT0;                        // Toggle P1.0 LED
+    TIMER32_1->INTCLR = 0;
+    output = compute(sampleToTemp());
+    TIMER_A0->CCR[1] = (uint16_t) output;
 }
 
 void PORT4_IRQHandler(void)
 {
     uint8_t flag = P4->IV;
-    if (flag & BIT0){
+    if (flag == 0x4){
         start ^= true;
 
-        // Disable changing set point temperature when machine running.
         if (start){
-            P4->IE = BIT0;
-            P4->IFG &= ~(BIT1 | BIT2);
+            // Disable changing set point temperature when machine running.
+            P4->IE = BIT1;
+            P4->IFG &= ~(BIT2 | BIT3);
+
+            // Disable LCD blinking to signify heater start.
+            LCD_F->BMCTL &= ~0x2;
+
             initializePID (sampleToTemp());
             setSetpoint (setPointTemperature);
+            TIMER_A0->CCR[1] = (uint16_t) outLower;
+
+            // Start systick and timer_a0.
+            TIMER_A0->CTL |= TIMER_A_CTL_MC__UP;
+            TIMER32_1->LOAD = (uint32_t)pidComputeInterval * 3000000 - 1;
+            TIMER32_1->CONTROL |= TIMER32_CONTROL_ENABLE;
+            //SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
         }else{
-            P4->IE = BIT0 | BIT1 | BIT2;
+            // Disable systick and timer_a0
+            TIMER32_1->CONTROL &= ~TIMER32_CONTROL_ENABLE;
+            //SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
+            TIMER_A0->CTL &= ~TIMER_A_CTL_MC__UP;
+
+            // Enable interrupts on P4.1 & P4.2, and blink LCD.
+            P4->IE = BIT1 | BIT2 | BIT3;
+            LCD_F->BMCTL |= LCD_F_BMCTL_BLKMOD_3;
         }
-    }else if (flag & BIT1){
+    }else if (flag == 0x6){
         setPointTemperature += 1;
         setPointTemperature = (int)setPointTemperature % 100;
         showDig((int)(setPointTemperature / 10) % 10, char5);
         showDig((int)setPointTemperature % 10, char6);
-    }else if (flag & BIT2){
+    }else if (flag == 0x8){
         setPointTemperature -= 1;
         if (setPointTemperature < 0)
             setPointTemperature = 99;
